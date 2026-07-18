@@ -1,0 +1,54 @@
+; Configuration template for the fraud-generator-helper clip worker.
+; Copy this file to config.conf (gitignored) and fill in values for your
+; environment. Values prefixed with "env:" are resolved from the named
+; environment variable at load time, e.g. secret_access_key = env:AWS_SECRET_ACCESS_KEY
+
+[mqtt]
+host = localhost
+port = 1883
+username =
+password =
+client_id = fraud-gen-clip-worker
+qos = 1
+keepalive = 60
+tls = false
+topic_request = storeyes/fraud-gen/request
+topic_response = storeyes/fraud-gen/response
+
+[aws]
+; Leave blank to fall back to the default boto3 credential chain
+; (env vars, shared config, instance/task role).
+access_key_id =
+secret_access_key =
+region = us-east-1
+; Only set for S3-compatible endpoints (e.g. MinIO) during local testing.
+endpoint_url =
+
+[s3]
+bucket = storeyes-bucket
+source_key = bts.mp4
+clips_prefix = clips/
+thumbnails_prefix = clips/thumbnail/
+; If left blank, URLs are built as https://<bucket>.s3.<region>.amazonaws.com/<key>
+public_url_base =
+
+[video]
+; Leave blank to detect fps via ffprobe on the cached source file.
+fps_override =
+video_codec = libx264
+audio_codec = aac
+
+[cache]
+dir = ./cache
+source_filename = bts.mp4
+
+[dedup]
+db_path = ./data/dedup.sqlite3
+
+[app]
+log_level = INFO
+log_json = true
+log_dir = ./logs
+work_dir = ./work
+ffmpeg_bin = ffmpeg
+ffprobe_bin = ffprobe

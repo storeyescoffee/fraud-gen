@@ -1,0 +1,33 @@
+[Unit]
+Description=Storeyes fraud-gen MQTT clip generation worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fraudgen
+Group=fraudgen
+WorkingDirectory=/opt/fraud-generator-helper
+
+# Secrets (AWS keys, MQTT credentials referenced via env: in config.conf)
+# live here, outside the repo, with tight permissions.
+EnvironmentFile=-/etc/fraud-generator-helper/fraud-generator-helper.env
+
+ExecStart=/opt/fraud-generator-helper/.venv/bin/python /opt/fraud-generator-helper/main.py \
+    --config /opt/fraud-generator-helper/config.conf \
+    --log-level INFO
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/fraud-generator-helper/cache /opt/fraud-generator-helper/data /opt/fraud-generator-helper/work /opt/fraud-generator-helper/logs
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+
+config.conf
+deploy/fraud-generator-helper.env
+
+cache/*
+!cache/.gitkeep
+data/*
+!data/.gitkeep
+work/*
+!work/.gitkeep
+logs/*
+!logs/.gitkeep
