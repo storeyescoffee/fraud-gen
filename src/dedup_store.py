@@ -18,6 +18,18 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+_EXPECTED_COLUMNS = [
+    "date",
+    "slice_id",
+    "from_seek",
+    "to_seek",
+    "status",
+    "video_url",
+    "thumbnail_url",
+    "error",
+    "processed_at",
+]
+
 
 @dataclass(frozen=True)
 class SliceRecord:
@@ -39,6 +51,7 @@ class DedupStore:
         self._init_schema()
 
     def _init_schema(self) -> None:
+        self._migrate_if_outdated()
         with self._conn:
             self._conn.execute(
                 """
@@ -56,6 +69,38 @@ class DedupStore:
                 )
                 """
             )
+
+    def _migrate_if_outdated(self) -> None:
+        """Drop processed_slices if its columns don't match the current schema.
+
+        CREATE TABLE IF NOT EXISTS silently no-ops against a table that
+        already exists with an old schema (e.g. a pre-rename from_frame/
+        to_frame layout), which otherwise surfaces as a cryptic
+        "no such column" error deep inside get()/upsert() on every message
+        instead of a clear one-time fixup at startup. The dedup store is
+        just an idempotency cache, not a source of truth, so dropping and
+        recreating it on a schema change is safe — it only means already
+        -processed slices get reprocessed once.
+        """
+        with closing(self._conn.cursor()) as cur:
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='processed_slices'")
+            if cur.fetchone() is None:
+                return
+            cur.execute("PRAGMA table_info(processed_slices)")
+            existing_columns = [row[1] for row in cur.fetchall()]
+
+        if existing_columns != _EXPECTED_COLUMNS:
+            logger.warning(
+                "processed_slices has an outdated schema, recreating it (dedup history for this table is reset)",
+                extra={
+                    "extra_fields": {
+                        "existing_columns": existing_columns,
+                        "expected_columns": _EXPECTED_COLUMNS,
+                    }
+                },
+            )
+            with self._conn:
+                self._conn.execute("DROP TABLE processed_slices")
 
     def get(self, date: str, slice_id: str) -> Optional[SliceRecord]:
         with closing(self._conn.cursor()) as cur:
