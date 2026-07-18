@@ -47,6 +47,13 @@ class MqttClient:
         logger.log(level, "MQTT disconnected", extra={"extra_fields": {"rc": rc}})
 
     def _handle_message(self, client, userdata, message) -> None:
+        if message.retain:
+            logger.info(
+                "Ignoring retained message",
+                extra={"extra_fields": {"topic": message.topic, "mid": message.mid}},
+            )
+            return
+
         logger.info(
             "Received message",
             extra={"extra_fields": {"topic": message.topic, "qos": message.qos, "mid": message.mid}},
