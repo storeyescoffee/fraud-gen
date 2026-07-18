@@ -12,10 +12,12 @@ import threading
 from src.config import ConfigError, load_config
 from src.dedup_store import DedupStore
 from src.ffmpeg_processor import FfmpegProcessor
+from src.gateway import GatewayClient
 from src.handler import RequestHandler
 from src.logging_setup import setup_logging
 from src.mqtt_client import MqttClient, MqttClientError
 from src.s3_storage import S3Storage
+from src.snapshot_patcher import SnapshotPatcher
 from src.source_cache import SourceCache
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     s3_storage = S3Storage(config.aws, config.s3)
     source_cache = SourceCache(s3_storage, config.s3, config.cache)
     ffmpeg_processor = FfmpegProcessor(config.app, config.video)
+    gateway_client = GatewayClient(config.gateway)
+    snapshot_patcher = SnapshotPatcher(gateway_client, patch_path=config.gateway.snapshot_patch_path)
     handler = RequestHandler(
         source_cache=source_cache,
         ffmpeg_processor=ffmpeg_processor,
@@ -80,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         s3_config=config.s3,
         work_dir=config.app.work_dir,
         dry_run=args.dry_run,
+        snapshot_patcher=snapshot_patcher,
     )
 
     stop_event = threading.Event()

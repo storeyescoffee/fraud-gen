@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 import requests
 
-from src.gateway import GatewayClient
+from src.gateway import GatewayAuthError, GatewayClient
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,8 @@ class SnapshotPatcher:
             )
         except requests.RequestException as exc:
             raise SnapshotPatchError(f"PATCH {self._patch_path} request failed: {exc}") from exc
+        except GatewayAuthError as exc:
+            raise SnapshotPatchError(f"Gateway authentication failed: {exc}") from exc
 
         if response.status_code == 204:
             logger.info("Snapshot patch succeeded", extra={"extra_fields": {"count": len(body)}})

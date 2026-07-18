@@ -11,6 +11,7 @@ from src.config import S3Config
 from src.dedup_store import DedupStore
 from src.ffmpeg_processor import FfmpegError, FfmpegProcessor
 from src.s3_storage import S3Error, S3Storage
+from src.snapshot_patcher import SnapshotPatchError, SnapshotPatcher
 from src.source_cache import SourceCache, SourceCacheError
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class RequestHandler:
         s3_config: S3Config,
         work_dir: Path,
         dry_run: bool = False,
+        snapshot_patcher: Optional[SnapshotPatcher] = None,
     ):
         self._source_cache = source_cache
         self._ffmpeg = ffmpeg_processor
@@ -34,6 +36,7 @@ class RequestHandler:
         self._s3_config = s3_config
         self._work_dir = work_dir
         self._dry_run = dry_run
+        self._snapshot_patcher = snapshot_patcher
         self._work_dir.mkdir(parents=True, exist_ok=True)
 
     def handle_request(self, raw_payload: bytes) -> Optional[dict[str, Any]]:
@@ -57,23 +60,30 @@ class RequestHandler:
             extra={"extra_fields": {"date": date, "slice_count": len(slices)}},
         )
 
+        clips: list[dict[str, Any]] = []
+        success = 0
+        failed = 0
+
         try:
             source_path = self._source_cache.ensure_cached()
             fps = self._ffmpeg.get_fps(source_path)
         except (SourceCacheError, FfmpegError) as exc:
             logger.error("Cannot process request, source/fps unavailable: %s", exc)
-            return {"date": date, "success": 0, "failed": len(slices), "clips": []}
+            failed = len(slices)
+        else:
+            for slice_payload in slices:
+                clip = self._process_slice(date, slice_payload, source_path, fps)
+                if clip is None:
+                    failed += 1
+                else:
+                    success += 1
+                    clips.append(clip)
 
-        clips = []
-        success = 0
-        failed = 0
-        for slice_payload in slices:
-            clip = self._process_slice(date, slice_payload, source_path, fps)
-            if clip is None:
-                failed += 1
-            else:
-                success += 1
-                clips.append(clip)
+        # Sync the resulting URLs to the panel before the MQTT response goes out,
+        # so consumers reading the response can rely on the snapshot rows already
+        # being up to date. A patch failure is logged but doesn't drop the
+        # response — the clips themselves were still generated successfully.
+        self._patch_snapshots(clips)
 
         response = {"date": date, "success": success, "failed": failed, "clips": clips}
         logger.info(
@@ -81,6 +91,14 @@ class RequestHandler:
             extra={"extra_fields": {"date": date, "success": success, "failed": failed}},
         )
         return response
+
+    def _patch_snapshots(self, clips: list[dict[str, Any]]) -> None:
+        if self._snapshot_patcher is None or self._dry_run or not clips:
+            return
+        try:
+            self._snapshot_patcher.patch_clips(clips)
+        except SnapshotPatchError as exc:
+            logger.error("Failed to patch pulse-fraud-snapshots: %s", exc)
 
     def _process_slice(
         self, date: str, slice_payload: Any, source_path: Path, fps: float
