@@ -84,9 +84,16 @@ class RequestHandler:
 
     def _process_slice(
         self, date: str, slice_payload: Any, source_path: Path, fps: float
-    ) -> Optional[dict[str, str]]:
+    ) -> Optional[dict[str, Any]]:
         try:
-            slice_id = str(slice_payload["id"])
+            raw_id = slice_payload["id"]
+            if isinstance(raw_id, bool) or not isinstance(raw_id, (str, int)):
+                raise TypeError(f"id must be a string or number, got {type(raw_id).__name__}")
+            # The id may be a UUID string or a plain number; preserve whatever
+            # type the caller sent it as in the response, but use a stable
+            # string form as the dedup-store key so lookups aren't type-sensitive.
+            slice_id = raw_id
+            dedup_key = str(raw_id)
             from_frame = int(slice_payload["from_frame"])
             to_frame = int(slice_payload["to_frame"])
         except (KeyError, TypeError, ValueError):
@@ -100,11 +107,11 @@ class RequestHandler:
             )
             if not self._dry_run:
                 self._dedup_store.upsert(
-                    date, slice_id, from_frame, to_frame, "failed", error="invalid frame range"
+                    date, dedup_key, from_frame, to_frame, "failed", error="invalid frame range"
                 )
             return None
 
-        existing = self._dedup_store.get(date, slice_id)
+        existing = self._dedup_store.get(date, dedup_key)
         if existing is not None and existing.status == "success":
             logger.info(
                 "Slice already processed, reusing cached result",
@@ -131,14 +138,14 @@ class RequestHandler:
                 video_url = self._s3_storage.upload_file(local_clip, clip_key, content_type="video/mp4")
                 thumbnail_url = self._s3_storage.upload_file(local_thumb, thumb_key, content_type="image/jpeg")
                 self._dedup_store.upsert(
-                    date, slice_id, from_frame, to_frame, "success", video_url, thumbnail_url
+                    date, dedup_key, from_frame, to_frame, "success", video_url, thumbnail_url
                 )
         except (FfmpegError, S3Error) as exc:
             logger.exception(
                 "Slice processing failed", extra={"extra_fields": {"date": date, "slice_id": slice_id}}
             )
             if not self._dry_run:
-                self._dedup_store.upsert(date, slice_id, from_frame, to_frame, "failed", error=str(exc))
+                self._dedup_store.upsert(date, dedup_key, from_frame, to_frame, "failed", error=str(exc))
             return None
         finally:
             local_clip.unlink(missing_ok=True)
