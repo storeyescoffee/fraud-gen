@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 def _format_seek(seek: float) -> str:
-    """Deterministic, filename-safe formatting for a seek time in seconds."""
-    return f"{seek:.3f}"
+    """Format a seek time (seconds) as whole milliseconds for filenames/keys."""
+    return str(round(seek * 1000))
 
 
 class RequestHandler:
