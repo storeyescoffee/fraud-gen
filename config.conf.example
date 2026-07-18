@@ -48,6 +48,7 @@ db_path = ./data/dedup.sqlite3
 [gateway]
 base_url = https://panel.storeyes.io
 login_path = /api/auth/login
+snapshot_patch_path = /pulse-fraud-snapshots
 ; Set via env: (recommended) or fill in directly — this file is gitignored.
 username =
 password =

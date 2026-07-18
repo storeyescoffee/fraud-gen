@@ -86,6 +86,7 @@ class DedupConfig:
 class GatewayConfig:
     base_url: str
     login_path: str
+    snapshot_patch_path: str
     username: Optional[str]
     password: Optional[str]
     token_cache_path: Path
@@ -170,6 +171,9 @@ def load_config(path: str | Path) -> Config:
         gateway = GatewayConfig(
             base_url=parser.get("gateway", "base_url", fallback="https://panel.storeyes.io"),
             login_path=parser.get("gateway", "login_path", fallback="/api/auth/login"),
+            snapshot_patch_path=parser.get(
+                "gateway", "snapshot_patch_path", fallback="/pulse-fraud-snapshots"
+            ),
             username=_resolve(parser.get("gateway", "username", fallback="")),
             password=_resolve(parser.get("gateway", "password", fallback="")),
             token_cache_path=Path(
