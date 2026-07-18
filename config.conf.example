@@ -45,6 +45,16 @@ source_filename = bts.mp4
 [dedup]
 db_path = ./data/dedup.sqlite3
 
+[gateway]
+base_url = https://panel.storeyes.io
+login_path = /api/auth/login
+; Set via env: (recommended) or fill in directly — this file is gitignored.
+username =
+password =
+token_cache_path = ./cache/gateway_token.json
+; Re-login this many seconds before the cached token's expiry.
+refresh_margin_seconds = 60
+
 [app]
 log_level = INFO
 log_json = true

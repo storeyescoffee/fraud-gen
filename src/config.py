@@ -83,6 +83,16 @@ class DedupConfig:
 
 
 @dataclass(frozen=True)
+class GatewayConfig:
+    base_url: str
+    login_path: str
+    username: Optional[str]
+    password: Optional[str]
+    token_cache_path: Path
+    refresh_margin_seconds: int
+
+
+@dataclass(frozen=True)
 class AppConfig:
     log_level: str
     log_json: bool
@@ -100,6 +110,7 @@ class Config:
     video: VideoConfig
     cache: CacheConfig
     dedup: DedupConfig
+    gateway: GatewayConfig
     app: AppConfig
 
 
@@ -156,6 +167,17 @@ def load_config(path: str | Path) -> Config:
             db_path=Path(parser.get("dedup", "db_path", fallback="./data/dedup.sqlite3")),
         )
 
+        gateway = GatewayConfig(
+            base_url=parser.get("gateway", "base_url", fallback="https://panel.storeyes.io"),
+            login_path=parser.get("gateway", "login_path", fallback="/api/auth/login"),
+            username=_resolve(parser.get("gateway", "username", fallback="")),
+            password=_resolve(parser.get("gateway", "password", fallback="")),
+            token_cache_path=Path(
+                parser.get("gateway", "token_cache_path", fallback="./cache/gateway_token.json")
+            ),
+            refresh_margin_seconds=parser.getint("gateway", "refresh_margin_seconds", fallback=60),
+        )
+
         app = AppConfig(
             log_level=parser.get("app", "log_level", fallback="INFO"),
             log_json=parser.getboolean("app", "log_json", fallback=True),
@@ -174,4 +196,4 @@ def load_config(path: str | Path) -> Config:
     if not s3.bucket:
         raise ConfigError("s3.bucket must not be empty")
 
-    return Config(mqtt=mqtt, aws=aws, s3=s3, video=video, cache=cache, dedup=dedup, app=app)
+    return Config(mqtt=mqtt, aws=aws, s3=s3, video=video, cache=cache, dedup=dedup, gateway=gateway, app=app)
