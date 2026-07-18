@@ -66,11 +66,11 @@ class FfmpegProcessor:
         cmd = [
             self._app_config.ffmpeg_bin,
             "-y",
-            "-i", str(source_path),
             "-ss", f"{start_time:.6f}",
+            "-i", str(source_path),
             "-t", f"{duration:.6f}",
             "-c:v", self._video_config.video_codec,
-            "-c:a", self._video_config.audio_codec,
+            "-an",
             "-avoid_negative_ts", "make_zero",
             str(out_path),
         ]
@@ -89,8 +89,8 @@ class FfmpegProcessor:
         cmd = [
             self._app_config.ffmpeg_bin,
             "-y",
-            "-i", str(source_path),
             "-ss", f"{start_time:.6f}",
+            "-i", str(source_path),
             "-frames:v", "1",
             "-q:v", "2",
             str(out_path),

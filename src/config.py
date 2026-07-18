@@ -64,7 +64,6 @@ class S3Config:
 class VideoConfig:
     fps_override: Optional[float]
     video_codec: str
-    audio_codec: str
 
 
 @dataclass(frozen=True)
@@ -155,8 +154,7 @@ def load_config(path: str | Path) -> Config:
         fps_raw = _resolve(parser.get("video", "fps_override", fallback=""))
         video = VideoConfig(
             fps_override=float(fps_raw) if fps_raw else None,
-            video_codec=parser.get("video", "video_codec", fallback="libx264"),
-            audio_codec=parser.get("video", "audio_codec", fallback="aac"),
+            video_codec=parser.get("video", "video_codec", fallback="copy"),
         )
 
         cache = CacheConfig(
