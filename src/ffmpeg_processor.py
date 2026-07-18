@@ -1,8 +1,7 @@
-"""Frame-range clip extraction and thumbnail generation via ffmpeg/ffprobe."""
+"""Seek-range clip extraction and thumbnail generation via ffmpeg."""
 
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
 from pathlib import Path
@@ -13,60 +12,28 @@ logger = logging.getLogger(__name__)
 
 
 class FfmpegError(Exception):
-    """Raised when ffmpeg or ffprobe fails or returns unusable output."""
+    """Raised when ffmpeg fails or returns unusable output."""
 
 
 class FfmpegProcessor:
     def __init__(self, app_config: AppConfig, video_config: VideoConfig):
         self._app_config = app_config
         self._video_config = video_config
-        self._fps_cache: dict[Path, float] = {}
-
-    def get_fps(self, source_path: Path) -> float:
-        if self._video_config.fps_override:
-            return self._video_config.fps_override
-        if source_path in self._fps_cache:
-            return self._fps_cache[source_path]
-
-        cmd = [
-            self._app_config.ffprobe_bin,
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=r_frame_rate",
-            "-of", "json",
-            str(source_path),
-        ]
-        result = self._run(cmd, "ffprobe")
-        try:
-            data = json.loads(result.stdout)
-            rate = data["streams"][0]["r_frame_rate"]
-            num, _, den = rate.partition("/")
-            fps = float(num) / float(den) if den else float(num)
-        except (KeyError, IndexError, ValueError, json.JSONDecodeError) as exc:
-            raise FfmpegError(f"Could not parse fps from ffprobe output: {result.stdout!r}") from exc
-
-        if fps <= 0:
-            raise FfmpegError(f"ffprobe reported non-positive fps: {fps}")
-
-        self._fps_cache[source_path] = fps
-        return fps
 
     def extract_clip(
         self,
         source_path: Path,
-        from_frame: int,
-        to_frame: int,
-        fps: float,
+        from_seek: float,
+        to_seek: float,
         out_path: Path,
     ) -> None:
-        start_time = from_frame / fps
-        duration = (to_frame - from_frame + 1) / fps
+        duration = to_seek - from_seek
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         cmd = [
             self._app_config.ffmpeg_bin,
             "-y",
-            "-ss", f"{start_time:.6f}",
+            "-ss", f"{from_seek:.6f}",
             "-i", str(source_path),
             "-t", f"{duration:.6f}",
             "-c:v", self._video_config.video_codec,
@@ -79,17 +46,14 @@ class FfmpegProcessor:
     def extract_thumbnail(
         self,
         source_path: Path,
-        from_frame: int,
-        fps: float,
+        from_seek: float,
         out_path: Path,
     ) -> None:
-        start_time = from_frame / fps
-
         out_path.parent.mkdir(parents=True, exist_ok=True)
         cmd = [
             self._app_config.ffmpeg_bin,
             "-y",
-            "-ss", f"{start_time:.6f}",
+            "-ss", f"{from_seek:.6f}",
             "-i", str(source_path),
             "-frames:v", "1",
             "-q:v", "2",

@@ -62,7 +62,6 @@ class S3Config:
 
 @dataclass(frozen=True)
 class VideoConfig:
-    fps_override: Optional[float]
     video_codec: str
 
 
@@ -99,7 +98,6 @@ class AppConfig:
     log_dir: Path
     work_dir: Path
     ffmpeg_bin: str
-    ffprobe_bin: str
 
 
 @dataclass(frozen=True)
@@ -151,9 +149,7 @@ def load_config(path: str | Path) -> Config:
             public_url_base=_resolve(parser.get("s3", "public_url_base", fallback="")),
         )
 
-        fps_raw = _resolve(parser.get("video", "fps_override", fallback=""))
         video = VideoConfig(
-            fps_override=float(fps_raw) if fps_raw else None,
             video_codec=parser.get("video", "video_codec", fallback="copy"),
         )
 
@@ -186,7 +182,6 @@ def load_config(path: str | Path) -> Config:
             log_dir=Path(parser.get("app", "log_dir", fallback="./logs")),
             work_dir=Path(parser.get("app", "work_dir", fallback="./work")),
             ffmpeg_bin=parser.get("app", "ffmpeg_bin", fallback="ffmpeg"),
-            ffprobe_bin=parser.get("app", "ffprobe_bin", fallback="ffprobe"),
         )
     except (configparser.NoSectionError, configparser.NoOptionError) as exc:
         raise ConfigError(f"Missing required config value: {exc}") from exc

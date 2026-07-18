@@ -11,8 +11,8 @@ sudo apt-get update
 sudo apt-get install -y python3 python3-venv ffmpeg
 ```
 
-`ffmpeg` also provides `ffprobe`; both must be on `PATH` for the user that
-runs the service (verify with `ffmpeg -version` / `ffprobe -version`).
+`ffmpeg` must be on `PATH` for the user that runs the service (verify with
+`ffmpeg -version`).
 
 ## 2. Create a dedicated service user
 

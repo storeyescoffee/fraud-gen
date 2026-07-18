@@ -17,6 +17,11 @@ from src.source_cache import SourceCache, SourceCacheError
 logger = logging.getLogger(__name__)
 
 
+def _format_seek(seek: float) -> str:
+    """Deterministic, filename-safe formatting for a seek time in seconds."""
+    return f"{seek:.3f}"
+
+
 class RequestHandler:
     def __init__(
         self,
@@ -66,13 +71,12 @@ class RequestHandler:
 
         try:
             source_path = self._source_cache.ensure_cached()
-            fps = self._ffmpeg.get_fps(source_path)
-        except (SourceCacheError, FfmpegError) as exc:
-            logger.error("Cannot process request, source/fps unavailable: %s", exc)
+        except SourceCacheError as exc:
+            logger.error("Cannot process request, source unavailable: %s", exc)
             failed = len(slices)
         else:
             for slice_payload in slices:
-                clip = self._process_slice(date, slice_payload, source_path, fps)
+                clip = self._process_slice(date, slice_payload, source_path)
                 if clip is None:
                     failed += 1
                 else:
@@ -101,7 +105,7 @@ class RequestHandler:
             logger.error("Failed to patch pulse-fraud-snapshots: %s", exc)
 
     def _process_slice(
-        self, date: str, slice_payload: Any, source_path: Path, fps: float
+        self, date: str, slice_payload: Any, source_path: Path
     ) -> Optional[dict[str, Any]]:
         try:
             raw_id = slice_payload["id"]
@@ -112,20 +116,20 @@ class RequestHandler:
             # string form as the dedup-store key so lookups aren't type-sensitive.
             slice_id = raw_id
             dedup_key = str(raw_id)
-            from_frame = int(slice_payload["from_frame"])
-            to_frame = int(slice_payload["to_frame"])
+            from_seek = float(slice_payload["from_seek"])
+            to_seek = float(slice_payload["to_seek"])
         except (KeyError, TypeError, ValueError):
             logger.error("Skipping malformed slice", extra={"extra_fields": {"slice": slice_payload}})
             return None
 
-        if to_frame < from_frame or from_frame < 0:
+        if to_seek <= from_seek or from_seek < 0:
             logger.error(
-                "Skipping slice with invalid frame range",
-                extra={"extra_fields": {"slice_id": slice_id, "from_frame": from_frame, "to_frame": to_frame}},
+                "Skipping slice with invalid seek range",
+                extra={"extra_fields": {"slice_id": slice_id, "from_seek": from_seek, "to_seek": to_seek}},
             )
             if not self._dry_run:
                 self._dedup_store.upsert(
-                    date, dedup_key, from_frame, to_frame, "failed", error="invalid frame range"
+                    date, dedup_key, from_seek, to_seek, "failed", error="invalid seek range"
                 )
             return None
 
@@ -137,10 +141,11 @@ class RequestHandler:
             )
             return {"id": slice_id, "videoUrl": existing.video_url, "thumbnailUrl": existing.thumbnail_url}
 
-        clip_key = f"{self._s3_config.clips_prefix}{date}_{from_frame}_{to_frame}.mp4"
-        thumb_key = f"{self._s3_config.thumbnails_prefix}{date}_{from_frame}_{to_frame}.jpg"
-        local_clip = self._work_dir / f"{date}_{from_frame}_{to_frame}.mp4"
-        local_thumb = self._work_dir / f"{date}_{from_frame}_{to_frame}.jpg"
+        seek_suffix = f"{_format_seek(from_seek)}_{_format_seek(to_seek)}"
+        clip_key = f"{self._s3_config.clips_prefix}{date}_{seek_suffix}.mp4"
+        thumb_key = f"{self._s3_config.thumbnails_prefix}{date}_{seek_suffix}.jpg"
+        local_clip = self._work_dir / f"{date}_{seek_suffix}.mp4"
+        local_thumb = self._work_dir / f"{date}_{seek_suffix}.jpg"
 
         try:
             if self._dry_run:
@@ -151,19 +156,19 @@ class RequestHandler:
                 video_url = self._s3_storage.build_url(clip_key)
                 thumbnail_url = self._s3_storage.build_url(thumb_key)
             else:
-                self._ffmpeg.extract_clip(source_path, from_frame, to_frame, fps, local_clip)
-                self._ffmpeg.extract_thumbnail(source_path, from_frame, fps, local_thumb)
+                self._ffmpeg.extract_clip(source_path, from_seek, to_seek, local_clip)
+                self._ffmpeg.extract_thumbnail(source_path, from_seek, local_thumb)
                 video_url = self._s3_storage.upload_file(local_clip, clip_key, content_type="video/mp4")
                 thumbnail_url = self._s3_storage.upload_file(local_thumb, thumb_key, content_type="image/jpeg")
                 self._dedup_store.upsert(
-                    date, dedup_key, from_frame, to_frame, "success", video_url, thumbnail_url
+                    date, dedup_key, from_seek, to_seek, "success", video_url, thumbnail_url
                 )
         except (FfmpegError, S3Error) as exc:
             logger.exception(
                 "Slice processing failed", extra={"extra_fields": {"date": date, "slice_id": slice_id}}
             )
             if not self._dry_run:
-                self._dedup_store.upsert(date, dedup_key, from_frame, to_frame, "failed", error=str(exc))
+                self._dedup_store.upsert(date, dedup_key, from_seek, to_seek, "failed", error=str(exc))
             return None
         finally:
             local_clip.unlink(missing_ok=True)

@@ -33,11 +33,9 @@ thumbnails_prefix = clips/thumbnail/
 public_url_base =
 
 [video]
-; Leave blank to detect fps via ffprobe on the cached source file.
-fps_override =
 ; "copy" streams the video without re-encoding (fast, but the clip's
 ; actual start snaps to the nearest preceding keyframe rather than
-; landing exactly on from_frame). Set to an encoder name (e.g. libx264)
+; landing exactly on from_seek). Set to an encoder name (e.g. libx264)
 ; for frame-accurate cuts at the cost of re-encoding every clip.
 video_codec = copy
 
@@ -65,4 +63,3 @@ log_json = true
 log_dir = ./logs
 work_dir = ./work
 ffmpeg_bin = ffmpeg
-ffprobe_bin = ffprobe

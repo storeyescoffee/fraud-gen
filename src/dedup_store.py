@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 class SliceRecord:
     date: str
     slice_id: str
-    from_frame: int
-    to_frame: int
+    from_seek: float
+    to_seek: float
     status: str  # "success" | "failed"
     video_url: Optional[str]
     thumbnail_url: Optional[str]
@@ -45,8 +45,8 @@ class DedupStore:
                 CREATE TABLE IF NOT EXISTS processed_slices (
                     date TEXT NOT NULL,
                     slice_id TEXT NOT NULL,
-                    from_frame INTEGER NOT NULL,
-                    to_frame INTEGER NOT NULL,
+                    from_seek REAL NOT NULL,
+                    to_seek REAL NOT NULL,
                     status TEXT NOT NULL,
                     video_url TEXT,
                     thumbnail_url TEXT,
@@ -61,7 +61,7 @@ class DedupStore:
         with closing(self._conn.cursor()) as cur:
             cur.execute(
                 """
-                SELECT date, slice_id, from_frame, to_frame, status, video_url, thumbnail_url, error
+                SELECT date, slice_id, from_seek, to_seek, status, video_url, thumbnail_url, error
                 FROM processed_slices WHERE date = ? AND slice_id = ?
                 """,
                 (date, slice_id),
@@ -75,8 +75,8 @@ class DedupStore:
         self,
         date: str,
         slice_id: str,
-        from_frame: int,
-        to_frame: int,
+        from_seek: float,
+        to_seek: float,
         status: str,
         video_url: Optional[str] = None,
         thumbnail_url: Optional[str] = None,
@@ -86,11 +86,11 @@ class DedupStore:
             self._conn.execute(
                 """
                 INSERT INTO processed_slices
-                    (date, slice_id, from_frame, to_frame, status, video_url, thumbnail_url, error, processed_at)
+                    (date, slice_id, from_seek, to_seek, status, video_url, thumbnail_url, error, processed_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(date, slice_id) DO UPDATE SET
-                    from_frame=excluded.from_frame,
-                    to_frame=excluded.to_frame,
+                    from_seek=excluded.from_seek,
+                    to_seek=excluded.to_seek,
                     status=excluded.status,
                     video_url=excluded.video_url,
                     thumbnail_url=excluded.thumbnail_url,
@@ -100,8 +100,8 @@ class DedupStore:
                 (
                     date,
                     slice_id,
-                    from_frame,
-                    to_frame,
+                    from_seek,
+                    to_seek,
                     status,
                     video_url,
                     thumbnail_url,
