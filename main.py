@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import logging
+import os
 import signal
 import sys
 import threading
+from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - lock enforcement is Linux-only (systemd deployment)
+    fcntl = None  # type: ignore[assignment]
 
 from src.config import ConfigError, load_config
 from src.dedup_store import DedupStore
@@ -50,6 +58,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _acquire_single_instance_lock(lock_path: Path):
+    """Refuse to start if another instance already holds this lock.
+
+    Two processes sharing the same mqtt.client_id (e.g. this script run by
+    hand while the systemd-managed instance is also up) fight over that
+    client_id: the broker evicts whichever one connected first, and because
+    the session is persistent (clean_session=False), the winner replays the
+    loser's un-acked in-flight messages. A single-instance lock, keyed by
+    client_id, makes that collision impossible instead of hard to debug.
+    """
+    if fcntl is None:
+        return None
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        if exc.errno in (errno.EACCES, errno.EAGAIN):
+            lock_file.close()
+            return None
+        raise
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
+    return lock_file
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -69,6 +103,18 @@ def main(argv: list[str] | None = None) -> int:
         "Starting fraud-generator-helper worker",
         extra={"extra_fields": {"dry_run": args.dry_run, "one_shot": args.one_shot}},
     )
+
+    lock_path = config.app.work_dir / f"{config.mqtt.client_id}.lock"
+    instance_lock = _acquire_single_instance_lock(lock_path)
+    if fcntl is not None and instance_lock is None:
+        logger.error(
+            "Another instance is already running with mqtt.client_id '%s' (lock held at %s). "
+            "Refusing to start: a second connection with the same client_id would evict the "
+            "running one and cause the broker to replay its unacked messages.",
+            config.mqtt.client_id,
+            lock_path,
+        )
+        return 1
 
     dedup_store = DedupStore(config.dedup.db_path)
     s3_storage = S3Storage(config.aws, config.s3)

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import queue
 import ssl
-from typing import Callable
+import threading
+from typing import Callable, Optional
 
 import paho.mqtt.client as mqtt
 
@@ -24,6 +26,17 @@ class MqttClient:
         self._config = config
         self._on_request = on_request
         self._client = mqtt.Client(client_id=config.client_id, clean_session=False)
+
+        # on_message must return quickly: it runs on paho's own network I/O
+        # thread, and request handling (ffmpeg + S3 + gateway PATCH) can take
+        # tens of seconds. Blocking that thread starves PINGREQ, which can
+        # get the broker to drop the connection mid-request; combined with
+        # clean_session=False, the dropped, not-yet-acked QoS-1 message then
+        # gets redelivered on reconnect. Handing payloads off to a separate
+        # worker thread keeps the network thread free to service keepalive.
+        self._request_queue: "queue.Queue[bytes]" = queue.Queue()
+        self._worker_thread: Optional[threading.Thread] = None
+        self._stop_worker = threading.Event()
 
         if config.username:
             self._client.username_pw_set(config.username, config.password)
@@ -58,10 +71,20 @@ class MqttClient:
             "Received message",
             extra={"extra_fields": {"topic": message.topic, "qos": message.qos, "mid": message.mid}},
         )
-        try:
-            self._on_request(message.payload)
-        except Exception:
-            logger.exception("Unhandled error while processing message")
+        self._request_queue.put(message.payload)
+
+    def _worker_loop(self) -> None:
+        while not self._stop_worker.is_set():
+            try:
+                payload = self._request_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            try:
+                self._on_request(payload)
+            except Exception:
+                logger.exception("Unhandled error while processing message")
+            finally:
+                self._request_queue.task_done()
 
     def connect(self) -> None:
         try:
@@ -77,14 +100,26 @@ class MqttClient:
         logger.info("Published response", extra={"extra_fields": {"topic": topic}})
 
     def loop_forever(self) -> None:
+        self._start_worker()
         self._client.loop_forever(retry_first_connection=True)
 
     def loop_start(self) -> None:
+        self._start_worker()
         self._client.loop_start()
 
     def loop_once(self, timeout: float = 1.0) -> None:
         self._client.loop(timeout=timeout)
 
+    def _start_worker(self) -> None:
+        self._stop_worker.clear()
+        self._worker_thread = threading.Thread(
+            target=self._worker_loop, name="mqtt-request-worker", daemon=True
+        )
+        self._worker_thread.start()
+
     def disconnect(self) -> None:
         self._client.loop_stop()
         self._client.disconnect()
+        self._stop_worker.set()
+        if self._worker_thread is not None:
+            self._worker_thread.join(timeout=30)
